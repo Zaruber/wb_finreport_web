@@ -1,0 +1,66 @@
+/* Web 1.0: белый фон, Verdana, синие ссылки, простые рамки. Ничего лишнего. */
+body {
+  background: #fff;
+  color: #000;
+  font: 13px Verdana, Geneva, sans-serif;
+  margin: 16px;
+}
+
+h2 { margin: 0 0 8px; font-size: 17px; }
+hr { border: 0; border-top: 1px solid #999; }
+
+a { color: #00c; }
+a:visited { color: #551a8b; }
+
+small { color: #555; }
+
+/* блоки загрузки — таблица с рамками, как в 2001-м */
+table.up { border-collapse: collapse; margin: 8px 0; }
+table.up td {
+  border: 1px solid #999;
+  background: #f2f2ee;
+  vertical-align: top;
+  width: 33%;
+  padding: 8px 10px;
+}
+table.up b { display: block; margin-bottom: 6px; }
+table.up input[type=file] { margin: 3px 0; max-width: 100%; }
+table.up label { display: block; margin-top: 6px; }
+.status { color: #060; }
+
+input, select, button {
+  font: 12px Verdana, Geneva, sans-serif;
+  background: #f2f2ee;
+  color: #000;
+  border: 1px solid #999;
+  padding: 2px 8px;
+}
+input[type=submit]:hover, button:hover { background: #ddd; cursor: pointer; }
+input[type=radio], input[type=checkbox] { border: none; background: none; }
+
+dialog {
+  background: #f2f2ee;
+  color: #000;
+  border: 1px solid #999;
+  padding: 16px;
+}
+dialog::backdrop { background: rgba(0, 0, 0, .3); }
+dialog label { display: inline; }
+
+/* AG Grid под общий ретро-стиль */
+#grid {
+  --ag-font-family: Verdana, Geneva, sans-serif;
+  --ag-font-size: 11px;
+  --ag-foreground-color: #000;
+  --ag-background-color: #fff;
+  --ag-header-background-color: #d4d0c8;
+  --ag-header-foreground-color: #000;
+  --ag-border-color: #999;
+  --ag-row-border-color: #ccc;
+  --ag-odd-row-background-color: #f7f7f3;
+  --ag-row-hover-color: #eee8d0;
+  --ag-cell-horizontal-padding: 6px;
+  --ag-borders: solid 1px;
+}
+#grid .ag-floating-top .ag-cell { font-weight: bold; background: #e4efe4; }
+#grid .ag-cell { line-height: 24px; }

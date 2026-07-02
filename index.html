@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Финотчёт ВБ — разрез по артикулам</title>
+<link rel="stylesheet" href="lib/ag-grid.css">
+<link rel="stylesheet" href="lib/ag-theme-balham.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<h2>Финотчёт ВБ — разрез по артикулам</h2>
+<hr>
+
+<table class="up" width="100%"><tr>
+<td>
+  <b>1. Детализация отчёта (xlsx)</b>
+  <input type="file" id="f-report" accept=".xlsx"><br>
+  <span class="status" id="s-report"></span>
+  <label><input type="checkbox" id="skip-promo">
+  Не учитывать «Оказание услуг WB Продвижение» в прочих удержаниях</label>
+  <p>
+    <button type="button" id="btn-tax">Настроить налоги</button>
+    <small id="tax-now"></small>
+  </p>
+</td>
+<td>
+  <b>2. Себестоимость</b> <small>(Артикул ВБ | Себестоимость)</small><br>
+  <input type="file" id="f-cost" accept=".xlsx,.csv,.tsv,.txt"><br>
+  <span class="status" id="s-cost"></span>
+</td>
+<td>
+  <b>3. Реклама</b> <small>(ID РК | Артикул ВБ | Затраты)</small><br>
+  <input type="file" id="f-adv" accept=".xlsx,.csv,.tsv,.txt"><br>
+  <span class="status" id="s-adv"></span>
+</td>
+</tr></table>
+
+<p id="toolbar" hidden>
+  <a href="#" id="lnk-export">&#11015; Скачать XLSX</a>
+  &nbsp; <a href="#" id="lnk-png">&#11015; Скачать PNG</a>
+  &nbsp;|&nbsp; Прочие удержания <a href="#" id="lnk-other">[раскрыть]</a>
+  <span id="tax-toggle" hidden>&nbsp;|&nbsp; Налог <a href="#" id="lnk-tax">[раскрыть]</a></span>
+</p>
+
+<div id="grid" class="ag-theme-balham" hidden></div>
+<p id="empty"><i>Загрузите детализацию еженедельного отчёта.</i></p>
+
+<hr>
+<p><small>Прибыль = К&nbsp;перечислению &minus; эквайринг &minus; логистика &minus; хранение &minus; приёмка &minus; штрафы &minus; прочие удержания &minus; себестоимость&times;(продажи&minus;возвраты) &minus; реклама &minus; налог.
+Налоговая база: УСН «Доходы»/НПД — «ВБ реализовал»; УСН «Д&minus;Р»/ОСН — прибыль до налога (если &gt;0). Маржа = прибыль / «ВБ реализовал».
+Ср.&nbsp;цена = «ВБ реализовал» / (продажи&minus;возвраты). Выручка = выручка&nbsp;продажи (продажа, авансовая оплата, компенсация подмены, корректная продажа, частичная компенсация&nbsp;брака) &minus; выручка&nbsp;возвраты. Комиссия WB = Выручка &minus; «К&nbsp;перечислению» &minus; эквайринг + компенсации (компенсация&nbsp;ущерба&nbsp;+&nbsp;добровольная&nbsp;компенсация&nbsp;при&nbsp;возврате). Валовая прибыль = «ВБ реализовал» &minus; себестоимость. ROI = прибыль / (себестоимость&nbsp;+&nbsp;реклама).
+Проценты (комиссия — доля от выручки; логистика, хранение, ДРР, себестоимость — доля от «ВБ реализовал»). Прибыль на&nbsp;ед. = прибыль / (продажи&minus;возвраты).</small></p>
+<p><small>Все файлы обрабатываются локально в браузере и никуда не отправляются. Обновление страницы стирает данные.</small></p>
+
+<dialog id="taxdlg">
+  <form id="taxform" method="dialog">
+    <b>Вид налогообложения</b><br>
+    <select name="mode" id="taxmode">
+      <option>УСН «Доходы»</option>
+      <option>УСН «Доходы минус расходы»</option>
+      <option>НПД</option>
+      <option>ОСН</option>
+    </select><br><br>
+    <b>Налоговая ставка, %</b><br>
+    <label><input type="radio" name="rate" value="6"> 6%</label><br>
+    <label><input type="radio" name="rate" value="15"> 15%</label><br>
+    <label><input type="radio" name="rate" value="25"> 25%</label><br>
+    <label><input type="radio" name="rate" value="other"> Другая:</label>
+    <input name="custom" id="taxcustom" size="6"><br>
+    <label><input type="radio" name="rate" value="none"> Не учитывать</label><br><br>
+    <input type="submit" value="Сохранить">
+    <button type="button" id="btn-tax-cancel">Отмена</button>
+  </form>
+</dialog>
+
+<script src="lib/xlsx.full.min.js"></script>
+<script src="lib/ag-grid-community.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
