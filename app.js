@@ -6,6 +6,7 @@ const ART = {};    // nm_id -> метрики из детализации
 const OTHER = {};  // nm_id -> тип удержания -> сумма
 const COST = {};   // nm_id -> себестоимость за штуку
 const ADV = {};    // nm_id -> затраты на РК
+const STORAGE = {}; // nm_id -> сумма из отчёта платного хранения; если непусто — заменяет хранение из финотчёта
 let TAX = { mode: "", choice: "", custom: "" };  // choice: 6/15/25/other/none
 let SKIP = false;  // прятать «Оказание услуг WB Продвижение» — фильтр на показе, данные не трогает
 let showOther = false, showTax = false;
@@ -21,6 +22,7 @@ const HEADERS = {
   "обоснование для оплаты": "oplata",
   "кол-во": "qty",
   "вайлдберриз реализовал товар": "sold",
+  "цена розничная с учетом": "retail",  // «Цена розничная с учетом согласованной скидки» — база выручки
   "к перечислению продавцу": "pay",
   "услуги по доставке товара покупателю": "logistics",
   "возмещение издержек по эквайрингу": "acquiring",
@@ -28,11 +30,13 @@ const HEADERS = {
   "общая сумма штрафов": "fines",
   "хранение": "storage",
   "операции при приёмке": "acceptance",
+  "платная приемка": "acceptance",
   "удержания": "deduction",
   "корректировка вознаграждения": "vv_corr",
   "возмещение издержек": "reimb",
   "стоимость участия в программе лояльности": "loy_cost",
   "сумма, удержанная за начисленные баллы": "loy_points",
+  "сумма удержанная за начисленные баллы": "loy_points",
   "компенсация скидки по программе лояльности": "loy_comp",
   "виды логистики": "vid",  // «Виды логистики, штрафов и корректировок ВВ» — расшифровка удержаний
 };
@@ -70,9 +74,10 @@ function parseReport(rows) {
   const head = rows[0] || [];
   const col = {};
   head.forEach((h, i) => {
-    const hn = String(h ?? "").toLowerCase().split(/\s+/).filter(Boolean).join(" ");
+    // сравнение без пробелов: «Эквайринг / Комиссии…» и «Эквайринг/Комиссии…» — одно и то же
+    const hn = String(h ?? "").toLowerCase().replace(/\s+/g, "");
     for (const [prefix, key] of Object.entries(HEADERS))
-      if (hn.startsWith(prefix) && !(key in col)) { col[key] = i; break; }
+      if (hn.startsWith(prefix.replace(/\s+/g, "")) && !(key in col)) { col[key] = i; break; }
   });
   if (!("nm" in col) || !("pay" in col))
     throw new Error("не похоже на детализацию ВБ: нет столбцов «Код номенклатуры»/«К перечислению»");
@@ -87,18 +92,20 @@ function parseReport(rows) {
     const oplata = String(g("oplata") ?? "").trim().toLowerCase();
     const docType = String(g("doc") ?? "").trim().toLowerCase();
     const sign = docType === "возврат" ? -1 : 1;
-    // Компенсации: «Компенсация ущерба» и «Добровольная компенсация при возврате» — суммируем для Продажа/Возврат
-    const isComp = docType === "компенсация ущерба" || docType === "добровольная компенсация при возврате";
+    // Компенсации: «Компенсация ущерба» и «Добровольная компенсация при возврате» (тип документа или обоснование)
+    const isComp = ["компенсация ущерба", "добровольная компенсация при возврате"].some(c => docType === c || oplata === c);
     if (oplata === "продажа") a.qty_sold += num(g("qty"));
     else if (oplata === "возврат") a.qty_ret += num(g("qty"));
     a.sold += sign * num(g("sold"));
     a.pay += sign * num(g("pay"));
-    // Выручка: только определённые обоснования для Продажа/Возврат
-    if (docType === "продажа" && SALE_OPLATA.has(oplata)) a.revenue += num(g("sold"));
-    else if (docType === "возврат" && RET_OPLATA.has(oplata)) a.revenue -= num(g("sold"));
-    if (isComp) a.comp += sign * num(g("sold"));
+    // Выручка: «Цена розничная с учетом согласованной скидки», только пары Тип документа × Обоснование как в GSheets
+    if (docType === "продажа" && SALE_OPLATA.has(oplata)) a.revenue += num(g("retail"));
+    else if (docType === "возврат" && RET_OPLATA.has(oplata)) a.revenue -= num(g("retail"));
+    if (isComp) a.comp += sign * num(g("pay"));  // ponytail: компенсации = «К перечислению» этих строк; поменять на Пр, если сверка с GSheets разойдётся
     a.logistics += num(g("logistics"));
-    a.acquiring += num(g("acquiring"));
+    // эквайринг как в GSheets: только (Продажа, Продажа) минус (Возврат, Возврат)
+    if (docType === "продажа" && oplata === "продажа") a.acquiring += num(g("acquiring"));
+    else if (docType === "возврат" && oplata === "возврат") a.acquiring -= num(g("acquiring"));
     a.loy_comp += num(g("loy_comp"));  // компенсация скидки ПЛ — не продажа, но увеличивает «К перечислению»
     a.fines += num(g("fines"));
     a.storage += num(g("storage"));
@@ -155,10 +162,11 @@ function compute(oFlag, tFlag) {
     const a = ART[nm];
     const cogs = (COST[nm] || 0) * (a.qty_sold - a.qty_ret);
     const adv = ADV[nm] || 0;
+    const storage = Object.keys(STORAGE).length ? (STORAGE[nm] || 0) : a.storage;
     let other = a.other;
     if (SKIP)
       for (const [t, v] of Object.entries(OTHER[nm])) if (isPromo(t)) other -= v;
-    const pre = a.pay - a.acquiring - a.logistics - a.storage - a.acceptance - a.fines - other - cogs - adv;
+    const pre = a.pay - a.acquiring - a.logistics - storage - a.acceptance - a.fines - other - cogs - adv;
     // налоговая база упрощённо — выручка (УСН Доходы/НПД) либо прибыль до налога (Д−Р/ОСН), без НДС и нюансов
     const base = rate !== null ? Math.max(INCOME_MODES.includes(TAX.mode) ? a.sold : pre, 0) : 0;
     const tax = base * (rate || 0) / 100;
@@ -169,7 +177,7 @@ function compute(oFlag, tFlag) {
     const commPct = a.revenue ? comm / a.revenue * 100 : null;
     let vals = [a.qty_sold, a.qty_ret, a.sold, a.revenue, qtyNet ? a.sold / qtyNet : null,
                 comm, commPct, a.pay, a.acquiring,
-                a.logistics, pct(a.logistics), a.storage, pct(a.storage), a.acceptance, a.fines, other,
+                a.logistics, pct(a.logistics), storage, pct(storage), a.acceptance, a.fines, other,
                 ...types.map(t => OTHER[nm][t] || 0), adv, pct(adv), cogs, pct(cogs)];
     if (rate !== null) vals = vals.concat([tax], tFlag ? [base, rate] : []);
     vals.push(a.sold - cogs, profit,
@@ -374,6 +382,27 @@ onFile("f-cost", rows => {
   for (const r of rows)
     if (r && r.length >= 2 && num(r[1])) COST[String(r[0] ?? "").trim()] = num(r[1]);
   $("s-cost").textContent = `Загружено: ${Object.keys(COST).length} артикулов`;
+});
+
+// Отчёт платного хранения: 2-й лист, заголовки во 2-й строке, сумма — «Сумма хранения, руб» по «Артикул WB»
+$("f-storage").addEventListener("change", e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  f.arrayBuffer().then(buf => {
+    const wb = XLSX.read(buf, { type: "array", raw: true, codepage: 65001 });
+    const ws = wb.Sheets[wb.SheetNames[1] || wb.SheetNames[0]];  // ponytail: 2-й лист «Детальная информация»
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
+    const head = (rows[1] || []).map(h => String(h ?? "").toLowerCase().replace(/\s+/g, ""));
+    const iNm = head.findIndex(h => h.startsWith("артикулwb"));
+    const iSum = head.findIndex(h => h.startsWith("суммахранения"));
+    if (iNm < 0 || iSum < 0) throw new Error("не похоже на отчёт платного хранения: нет «Артикул WB»/«Сумма хранения»");
+    for (const k of Object.keys(STORAGE)) delete STORAGE[k];
+    for (const r of rows.slice(2)) {
+      const nm = String(r[iNm] ?? "").trim();
+      if (nm) STORAGE[nm] = (STORAGE[nm] || 0) + num(r[iSum]);
+    }
+    $("s-storage").textContent = `Загружено: ${Object.keys(STORAGE).length} артикулов`;
+  }).catch(err => alert("Ошибка: " + err.message)).finally(() => { e.target.value = ""; render(); });
 });
 
 onFile("f-adv", rows => {
