@@ -7,6 +7,12 @@ body {
 }
 
 h2 { margin: 0 0 8px; font-size: 17px; }
+
+/* шапка: логотип WBin + подпись */
+table.hdr { border-collapse: collapse; margin-bottom: 6px; }
+table.hdr td { vertical-align: middle; padding: 0 12px 0 0; }
+table.hdr h2 { margin: 0 0 2px; }
+.logo { height: 44px; display: block; }
 hr { border: 0; border-top: 1px solid #999; }
 
 a { color: #00c; }
