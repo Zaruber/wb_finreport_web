@@ -47,6 +47,7 @@
   &nbsp; <a href="#" id="lnk-png">&#11015; Скачать PNG</a>
   &nbsp;|&nbsp; Прочие удержания <a href="#" id="lnk-other">[раскрыть]</a>
   <span id="tax-toggle" hidden>&nbsp;|&nbsp; Налог <a href="#" id="lnk-tax">[раскрыть]</a></span>
+  <span id="sim-note" hidden>&nbsp;|&nbsp; <b>⚙ симуляция активна</b> <a href="#" id="lnk-sim-reset">[сбросить всё]</a></span>
 </p>
 
 <div id="grid" class="ag-theme-balham" hidden></div>
@@ -58,6 +59,25 @@
 Ср.&nbsp;цена = «ВБ реализовал» / (продажи&minus;возвраты). Выручка = выручка&nbsp;продажи (продажа, авансовая оплата, компенсация подмены, корректная продажа, частичная компенсация&nbsp;брака) &minus; выручка&nbsp;возвраты. Комиссия WB = Выручка &minus; «К&nbsp;перечислению» &minus; эквайринг + компенсации (компенсация&nbsp;ущерба&nbsp;+&nbsp;добровольная&nbsp;компенсация&nbsp;при&nbsp;возврате). Валовая прибыль = «ВБ реализовал» &minus; себестоимость. ROI = прибыль / (себестоимость&nbsp;+&nbsp;реклама).
 Проценты (комиссия — доля от выручки; логистика, хранение, ДРР, себестоимость — доля от «ВБ реализовал»). Прибыль на&nbsp;ед. = прибыль / (продажи&minus;возвраты).</small></p>
 <p><small>Все файлы обрабатываются локально в браузере и никуда не отправляются. Обновление страницы стирает данные.</small></p>
+
+<dialog id="simdlg">
+  <form id="simform" method="dialog">
+    <b>Симулятор: <span id="sim-title"></span></b><br><br>
+    <input type="hidden" name="nm">
+    <table class="sim">
+      <tr><td>Цена продажи, ₽/шт</td><td><input name="price" size="8"></td></tr>
+      <tr><td>Комиссия WB, %</td><td><input name="commPct" size="8"></td></tr>
+      <tr><td>Логистика, ₽</td><td><input name="logistics" size="8"></td></tr>
+      <tr><td>Хранение, ₽</td><td><input name="storage" size="8"></td></tr>
+      <tr><td>Реклама, ₽</td><td><input name="adv" size="8"></td></tr>
+      <tr><td>Себестоимость, ₽/шт</td><td><input name="cost" size="8"></td></tr>
+    </table>
+    <small>Пусто — фактическое значение (серым в поле). Цена пересчитывает оборот, выручку и эквайринг пропорционально; штуки не меняются.</small><br><br>
+    <input type="submit" value="Применить">
+    <button type="button" id="btn-sim-reset">Сбросить</button>
+    <button type="button" id="btn-sim-cancel">Отмена</button>
+  </form>
+</dialog>
 
 <dialog id="taxdlg">
   <form id="taxform" method="dialog">

@@ -7,6 +7,7 @@ const OTHER = {};  // nm_id -> тип удержания -> сумма
 const COST = {};   // nm_id -> себестоимость за штуку
 const ADV = {};    // nm_id -> затраты на РК
 const STORAGE = {}; // nm_id -> сумма из отчёта платного хранения; если непусто — заменяет хранение из финотчёта
+const SIM = {};     // nm_id -> {price, commPct, logistics, storage, adv, cost} — симулятор «что если», только в памяти
 let TAX = { mode: "", choice: "", custom: "" };  // choice: 6/15/25/other/none
 let SKIP = false;  // прятать «Оказание услуг WB Продвижение» — фильтр на показе, данные не трогает
 let showOther = false, showTax = false;
@@ -160,27 +161,34 @@ function compute(oFlag, tFlag) {
   const nms = Object.keys(ART).sort((x, y) => ART[y].pay - ART[x].pay);
   for (const nm of nms) {
     const a = ART[nm];
-    const cogs = (COST[nm] || 0) * (a.qty_sold - a.qty_ret);
-    const adv = ADV[nm] || 0;
-    const storage = Object.keys(STORAGE).length ? (STORAGE[nm] || 0) : a.storage;
+    const s = SIM[nm] || {};  // симулятор: заданные поля подменяют факт
+    const qtyNet = a.qty_sold - a.qty_ret;
+    // новая цена масштабирует оборот, выручку и эквайринг; ponytail: спрос в штуках не моделируем
+    const f = s.price > 0 && a.sold ? s.price * qtyNet / a.sold : 1;
+    const sold = a.sold * f, revenue = a.revenue * f, acq = a.acquiring * f;
+    const baseComm = a.revenue - a.pay - a.acquiring + a.comp;
+    const comm = s.commPct != null ? revenue * s.commPct / 100 : baseComm * f;
+    const pay = revenue - comm - acq + a.comp;  // при f=1 без переопределений тождественно факту
+    const logistics = s.logistics ?? a.logistics;
+    const cogs = (s.cost ?? COST[nm] ?? 0) * qtyNet;
+    const adv = s.adv ?? (ADV[nm] || 0);
+    const storage = s.storage ?? (Object.keys(STORAGE).length ? (STORAGE[nm] || 0) : a.storage);
     let other = a.other;
     if (SKIP)
       for (const [t, v] of Object.entries(OTHER[nm])) if (isPromo(t)) other -= v;
-    const pre = a.pay - a.acquiring - a.logistics - storage - a.acceptance - a.fines - other - cogs - adv;
+    const pre = pay - acq - logistics - storage - a.acceptance - a.fines - other - cogs - adv;
     // налоговая база упрощённо — выручка (УСН Доходы/НПД) либо прибыль до налога (Д−Р/ОСН), без НДС и нюансов
-    const base = rate !== null ? Math.max(INCOME_MODES.includes(TAX.mode) ? a.sold : pre, 0) : 0;
+    const base = rate !== null ? Math.max(INCOME_MODES.includes(TAX.mode) ? sold : pre, 0) : 0;
     const tax = base * (rate || 0) / 100;
     const profit = pre - tax;
-    const qtyNet = a.qty_sold - a.qty_ret;
-    const pct = v => a.sold ? v / a.sold * 100 : null;
-    const comm = a.revenue - a.pay - a.acquiring + a.comp;
-    const commPct = a.revenue ? comm / a.revenue * 100 : null;
-    let vals = [a.qty_sold, a.qty_ret, a.sold, a.revenue, qtyNet ? a.sold / qtyNet : null,
-                comm, commPct, a.pay, a.acquiring,
-                a.logistics, pct(a.logistics), storage, pct(storage), a.acceptance, a.fines, other,
+    const pct = v => sold ? v / sold * 100 : null;
+    const commPct = revenue ? comm / revenue * 100 : null;
+    let vals = [a.qty_sold, a.qty_ret, sold, revenue, qtyNet ? sold / qtyNet : null,
+                comm, commPct, pay, acq,
+                logistics, pct(logistics), storage, pct(storage), a.acceptance, a.fines, other,
                 ...types.map(t => OTHER[nm][t] || 0), adv, pct(adv), cogs, pct(cogs)];
     if (rate !== null) vals = vals.concat([tax], tFlag ? [base, rate] : []);
-    vals.push(a.sold - cogs, profit,
+    vals.push(sold - cogs, profit,
               qtyNet ? profit / qtyNet : null,
               pct(profit),
               cogs + adv ? profit / (cogs + adv) * 100 : null);
@@ -225,10 +233,11 @@ const gridApi = agGrid.createGrid($("grid"), {
   suppressCellFocus: true,
   animateRows: false,
   enableCellTextSelection: true,
+  rowClassRules: { "sim-row": p => !!(p.data && SIM[p.data[0]]) },
 });
 
 function colDefs(cols) {
-  return cols.map((c, i) => {
+  const defs = cols.map((c, i) => {
     const d = { headerName: c, colId: "c" + i, valueGetter: p => p.data[i] };
     if (i < 2) { d.width = i ? 130 : 120; d.pinned = "left"; return d; }
     d.type = "rightAligned";
@@ -239,6 +248,32 @@ function colDefs(cols) {
     else d.valueFormatter = p => fmt(p.value);
     return d;
   });
+  // шестерёнка симулятора
+  defs.unshift({ headerName: "", colId: "sim", width: 34, pinned: "left", sortable: false, resizable: false,
+    cellClass: "sim-gear", valueGetter: () => "",
+    cellRenderer: p => p.node.rowPinned ? "" : "⚙",
+    onCellClicked: p => { if (!p.node.rowPinned) openSim(p.data[0]); } });
+  return defs;
+}
+
+function openSim(nm) {
+  const a = ART[nm];
+  if (!a) return;
+  const f = $("simform");
+  f.nm.value = nm;
+  $("sim-title").textContent = nm + (a.supplier_art ? " · " + a.supplier_art : "");
+  const qtyNet = a.qty_sold - a.qty_ret;
+  const cur = {  // фактические значения — в подсказки
+    price: qtyNet ? Math.round(a.sold / qtyNet) : 0,
+    commPct: a.revenue ? +((a.revenue - a.pay - a.acquiring + a.comp) / a.revenue * 100).toFixed(1) : 0,
+    logistics: Math.round(a.logistics),
+    storage: Math.round(Object.keys(STORAGE).length ? STORAGE[nm] || 0 : a.storage),
+    adv: Math.round(ADV[nm] || 0),
+    cost: COST[nm] || 0,
+  };
+  const s = SIM[nm] || {};
+  for (const k of Object.keys(cur)) { f[k].placeholder = cur[k]; f[k].value = s[k] ?? ""; }
+  $("simdlg").showModal();
 }
 
 function render() {
@@ -248,6 +283,7 @@ function render() {
   $("empty").hidden = has;
   const rate = taxRate();
   $("tax-toggle").hidden = rate === null;
+  $("sim-note").hidden = !Object.keys(SIM).length;
   $("lnk-other").textContent = showOther ? "[свернуть]" : "[раскрыть]";
   $("lnk-tax").textContent = showTax ? "[свернуть]" : "[раскрыть]";
   $("tax-now").textContent = TAX.mode
@@ -425,6 +461,22 @@ $("lnk-other").addEventListener("click", e => { e.preventDefault(); showOther = 
 $("lnk-tax").addEventListener("click", e => { e.preventDefault(); showTax = !showTax; render(); });
 $("lnk-export").addEventListener("click", e => { e.preventDefault(); exportXlsx(); });
 $("lnk-png").addEventListener("click", e => { e.preventDefault(); exportPng(); });
+
+// симулятор
+$("simform").addEventListener("submit", () => {
+  const f = $("simform"), nm = f.nm.value, s = {};
+  for (const k of ["price", "commPct", "logistics", "storage", "adv", "cost"])
+    if (f[k].value.trim() !== "") s[k] = num(f[k].value);
+  if (Object.keys(s).length) SIM[nm] = s; else delete SIM[nm];
+  render();
+});
+$("btn-sim-reset").addEventListener("click", () => { delete SIM[$("simform").nm.value]; $("simdlg").close(); render(); });
+$("btn-sim-cancel").addEventListener("click", () => $("simdlg").close());
+$("lnk-sim-reset").addEventListener("click", e => {
+  e.preventDefault();
+  for (const k of Object.keys(SIM)) delete SIM[k];
+  render();
+});
 
 // модалка налогов
 $("btn-tax").addEventListener("click", () => {
