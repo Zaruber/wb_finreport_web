@@ -28,9 +28,11 @@ const HEADERS = {
   "услуги по доставке товара покупателю": "logistics",
   "возмещение издержек по эквайрингу": "acquiring",
   "эквайринг/комиссии за организацию платежей": "acquiring",
+  "компенсация платёжных услуг": "acquiring",  // формат 2026: «…/Комиссия за интеграцию платёжных сервисов»
   "общая сумма штрафов": "fines",
   "хранение": "storage",
   "операции при приёмке": "acceptance",
+  "операции на приемке": "acceptance",
   "платная приемка": "acceptance",
   "удержания": "deduction",
   "корректировка вознаграждения": "vv_corr",
@@ -38,6 +40,7 @@ const HEADERS = {
   "стоимость участия в программе лояльности": "loy_cost",
   "сумма, удержанная за начисленные баллы": "loy_points",
   "сумма удержанная за начисленные баллы": "loy_points",
+  "сумма баллов, удержанных": "loy_points",
   "компенсация скидки по программе лояльности": "loy_comp",
   "виды логистики": "vid",  // «Виды логистики, штрафов и корректировок ВВ» — расшифровка удержаний
 };
@@ -75,10 +78,11 @@ function parseReport(rows) {
   const head = rows[0] || [];
   const col = {};
   head.forEach((h, i) => {
-    // сравнение без пробелов: «Эквайринг / Комиссии…» и «Эквайринг/Комиссии…» — одно и то же
-    const hn = String(h ?? "").toLowerCase().replace(/\s+/g, "");
+    // сравнение без пробелов и ё: «Эквайринг / Комиссии…» = «Эквайринг/Комиссии…», «приёмке» = «приемке»
+    const norm = s => s.toLowerCase().replace(/\s+/g, "").replace(/ё/g, "е");
+    const hn = norm(String(h ?? ""));
     for (const [prefix, key] of Object.entries(HEADERS))
-      if (hn.startsWith(prefix.replace(/\s+/g, "")) && !(key in col)) { col[key] = i; break; }
+      if (hn.startsWith(norm(prefix)) && !(key in col)) { col[key] = i; break; }
   });
   if (!("nm" in col) || !("pay" in col))
     throw new Error("не похоже на детализацию ВБ: нет столбцов «Код номенклатуры»/«К перечислению»");
@@ -163,8 +167,8 @@ function compute(oFlag, tFlag) {
     const a = ART[nm];
     const s = SIM[nm] || {};  // симулятор: заданные поля подменяют факт
     const qtyNet = a.qty_sold - a.qty_ret;
-    // новая цена масштабирует оборот, выручку и эквайринг; ponytail: спрос в штуках не моделируем
-    const f = s.price > 0 && a.sold ? s.price * qtyNet / a.sold : 1;
+    // новая цена (розничная, за шт) масштабирует оборот, выручку и эквайринг; ponytail: спрос в штуках не моделируем
+    const f = s.price > 0 && a.revenue ? s.price * qtyNet / a.revenue : 1;
     const sold = a.sold * f, revenue = a.revenue * f, acq = a.acquiring * f;
     const baseComm = a.revenue - a.pay - a.acquiring + a.comp;
     const comm = s.commPct != null ? revenue * s.commPct / 100 : baseComm * f;
@@ -183,7 +187,8 @@ function compute(oFlag, tFlag) {
     const profit = pre - tax;
     const pct = v => sold ? v / sold * 100 : null;
     const commPct = revenue ? comm / revenue * 100 : null;
-    let vals = [a.qty_sold, a.qty_ret, sold, revenue, qtyNet ? sold / qtyNet : null,
+    // ср. цена — от выручки (розничная цена продавца), не от Пр со скидками ВБ
+    let vals = [a.qty_sold, a.qty_ret, sold, revenue, qtyNet ? revenue / qtyNet : null,
                 comm, commPct, pay, acq,
                 logistics, pct(logistics), storage, pct(storage), a.acceptance, a.fines, other,
                 ...types.map(t => OTHER[nm][t] || 0), adv, pct(adv), cogs, pct(cogs)];
@@ -202,7 +207,7 @@ function compute(oFlag, tFlag) {
   const tPct = v => tSold ? (v || 0) / tSold * 100 : null;
   const footVal = c =>
     c.startsWith("↳ Ставка") ? rate :
-    c === "Ср. цена продажи" ? (tQty ? tSold / tQty : null) :
+    c === "Ср. цена продажи" ? (tQty ? tRevenue / tQty : null) :
     c === "Комиссия WB, %" ? (tRevenue ? (total["Комиссия WB"] || 0) / tRevenue * 100 : null) :
     c === "Логистика, %" ? tPct(total["Логистика"]) :
     c === "Хранение, %" ? tPct(total["Хранение"]) :
@@ -264,7 +269,7 @@ function openSim(nm) {
   $("sim-title").textContent = nm + (a.supplier_art ? " · " + a.supplier_art : "");
   const qtyNet = a.qty_sold - a.qty_ret;
   const cur = {  // фактические значения — в подсказки
-    price: qtyNet ? Math.round(a.sold / qtyNet) : 0,
+    price: qtyNet ? Math.round(a.revenue / qtyNet) : 0,
     commPct: a.revenue ? +((a.revenue - a.pay - a.acquiring + a.comp) / a.revenue * 100).toFixed(1) : 0,
     logistics: Math.round(a.logistics),
     storage: Math.round(Object.keys(STORAGE).length ? STORAGE[nm] || 0 : a.storage),
